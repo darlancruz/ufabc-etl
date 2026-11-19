@@ -21,7 +21,9 @@ CREATE TABLE disciplina (
 
 CREATE TABLE curso (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nome VARCHAR(255) NOT NULL
+    nome VARCHAR(255) NOT NULL,
+
+    CONSTRAINT uq_curso_nome UNIQUE (nome)
 );
 
 
@@ -30,8 +32,8 @@ CREATE TABLE quadrimestre (
     codigo VARCHAR(10) NOT NULL UNIQUE,
     ano INTEGER NOT NULL,
     numero INTEGER NOT NULL,
-    is_atual BOOLEAN NOT NULL DEFAULT FALSE
-    
+    is_atual BOOLEAN NOT NULL DEFAULT FALSE,
+
     CONSTRAINT chk_numero_quadrimestre CHECK (numero BETWEEN 1 AND 3),
     CONSTRAINT uq_ano_quadrimestre UNIQUE (ano, numero)
 );
@@ -40,7 +42,9 @@ CREATE TABLE quadrimestre (
 CREATE TABLE docente (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nome VARCHAR(255) NOT NULL,
-    nome_normalizado VARCHAR(255) NOT NULL
+    nome_normalizado VARCHAR(255) NOT NULL,
+
+    CONSTRAINT uq_docente_nome_normalizado UNIQUE (nome_normalizado)
 );
 
 
