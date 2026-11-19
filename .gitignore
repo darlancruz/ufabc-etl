@@ -1,0 +1,17 @@
+# Ambientes virtuais
+.venv/
+venv/
+ENV/
+env/
+
+# Arquivos sensíveis
+.env
+
+# Arquivos de cache e compilação do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pastas de IDEs e Editores
+.vscode/
+.idea/
