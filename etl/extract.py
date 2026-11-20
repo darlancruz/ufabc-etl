@@ -1,4 +1,5 @@
 """Leitura (extract) dos arquivos de entrada, com validação de colunas."""
+
 import logging
 
 import pandas as pd
@@ -11,25 +12,38 @@ class ETLError(Exception):
 
 
 CATALOGO_COLUNAS = [
-    "CODIGO", "DISCIPLINA", "CH TOTAL", "CREDITO",
-    "BIBLIOGRAFIA BÁSICA", "BIBLIOGRAFIA COMPLEMENTAR",
-    "HORAS_TEORIA", "HORAS_PRATICA", "HORAS_EXTENSAO", "HORAS_ESTUDO_INDEP",
+    "CODIGO",
+    "DISCIPLINA",
+    "CH TOTAL",
+    "CREDITO",
+    "BIBLIOGRAFIA BÁSICA",
+    "BIBLIOGRAFIA COMPLEMENTAR",
+    "HORAS_TEORIA",
+    "HORAS_PRATICA",
+    "HORAS_EXTENSAO",
+    "HORAS_ESTUDO_INDEP",
 ]
 CATALOGO_OPCIONAIS = ["RECOMENDAÇÃO"]
 
-# cabeçalho normalizado (sem acento/caixa/espaços extras) -> nome interno
 TURMAS_COLUNAS = {
     "curso": "curso",
     "codigo de turma": "codigo_turma",
+    "codigo turma": "codigo_turma",
     "turma": "descricao",
     "campus": "campus",
     "turno": "turno",
     "vagas totais": "vagas",
+    "vagas": "vagas",
     "vagas ingressantes": "reserva",
+    "reserva": "reserva",
     "teoria": "teoria",
     "pratica": "pratica",
     "teoria com sala": "teoria_sala",
     "pratica com sala": "pratica_sala",
+    "horario teoria": "teoria_sala",
+    "horario pratica": "pratica_sala",
+    "ingles": "ingles_col",
+    "espanhol": "espanhol_col",
     "docente teoria": "doc_t1",
     "docente teoria 2": "doc_t2",
     "docente teoria 3": "doc_t3",

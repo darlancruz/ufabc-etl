@@ -1,6 +1,7 @@
 """Transformação (transform): converte os DataFrames lidos em registros prontos
 para o banco. Nenhuma função aqui acessa o banco, o que permite testar tudo.
 """
+
 import re
 from dataclasses import dataclass, field
 
@@ -27,11 +28,13 @@ CODIGO_TURMA_RE = re.compile(
 @dataclass
 class TransformResult:
     disciplinas: list = field(default_factory=list)
-    recomendacoes: list = field(default_factory=list)  # (codigo_pai, codigo_recomendado)
-    docentes: list = field(default_factory=list)       # {nome, nome_normalizado, origem}
+    recomendacoes: list = field(
+        default_factory=list
+    )  # (codigo_pai, codigo_recomendado)
+    docentes: list = field(default_factory=list)  # {nome, nome_normalizado, origem}
     cursos: list = field(default_factory=list)
-    turmas: list = field(default_factory=list)         # cada uma com "horarios"
-    problemas: list = field(default_factory=list)      # rejeições e avisos
+    turmas: list = field(default_factory=list)  # cada uma com "horarios"
+    problemas: list = field(default_factory=list)  # rejeições e avisos
 
     def problema(self, severidade, tipo, chave, detalhe):
         self.problemas.append(
@@ -45,6 +48,10 @@ def _int(valor, padrao=0) -> int:
     return int(float(str(valor).replace(",", ".")))
 
 
+def _sim(valor) -> bool:
+    return normalize_name(_texto(valor) or "") in {"sim", "s", "1", "true"}
+
+
 def _texto(valor):
     return None if is_blank(valor) else str(valor).strip()
 
@@ -55,8 +62,12 @@ def transform_catalogo(df: pd.DataFrame, res: TransformResult) -> None:
     for linha in df.to_dict("records"):
         codigo = str(linha["CODIGO"]).strip()
         if codigo in por_codigo:
-            res.problema("aviso", "catalogo_codigo_duplicado", codigo,
-                         "código repetido no catálogo; vale a última ocorrência")
+            res.problema(
+                "aviso",
+                "catalogo_codigo_duplicado",
+                codigo,
+                "código repetido no catálogo; vale a última ocorrência",
+            )
         por_codigo[codigo] = {
             "codigo": codigo,
             "nome": str(linha["DISCIPLINA"]).strip(),
@@ -84,13 +95,23 @@ def transform_catalogo(df: pd.DataFrame, res: TransformResult) -> None:
         for nome in (n.strip() for n in str(bruto).split(";")):
             if normalize_name(nome) in SEM_RECOMENDACAO:
                 continue
-            candidatos = [c for c in por_nome.get(normalize_name(nome), []) if c != d["codigo"]]
+            candidatos = [
+                c for c in por_nome.get(normalize_name(nome), []) if c != d["codigo"]
+            ]
             if not candidatos:
-                res.problema("aviso", "recomendacao_nao_encontrada", d["codigo"],
-                             f"'{nome}' não existe no catálogo")
+                res.problema(
+                    "aviso",
+                    "recomendacao_nao_encontrada",
+                    d["codigo"],
+                    f"'{nome}' não existe no catálogo",
+                )
             elif len(candidatos) > 1:
-                res.problema("aviso", "recomendacao_ambigua", d["codigo"],
-                             f"'{nome}' corresponde a {candidatos}; ignorada")
+                res.problema(
+                    "aviso",
+                    "recomendacao_ambigua",
+                    d["codigo"],
+                    f"'{nome}' corresponde a {candidatos}; ignorada",
+                )
             else:
                 pares.add((d["codigo"], candidatos[0]))
 
@@ -107,8 +128,12 @@ def transform_docentes(df: pd.DataFrame, res: TransformResult) -> None:
         if not chave:
             continue
         if chave in vistos:
-            res.problema("aviso", "docente_duplicado", nome,
-                         "nome repetido no CSV de docentes; mantida a primeira linha")
+            res.problema(
+                "aviso",
+                "docente_duplicado",
+                nome,
+                "nome repetido no CSV de docentes; mantida a primeira linha",
+            )
             continue
         vistos[chave] = {"nome": nome, "nome_normalizado": chave, "origem": "csv"}
     res.docentes = list(vistos.values())
@@ -124,7 +149,9 @@ def _docentes_da_linha(linha, colunas):
     return nomes
 
 
-def _horarios_do_tipo(linha, tipo, col_sala, col_simples, docentes, estrategia, ctx, res):
+def _horarios_do_tipo(
+    linha, tipo, col_sala, col_simples, docentes, estrategia, ctx, res
+):
     """Monta os horários de um tipo de aula (teoria/prática) de uma turma."""
     # Prefere a coluna "COM SALA"; se estiver vazia, usa a coluna sem sala.
     texto = linha.get(col_sala)
@@ -133,17 +160,25 @@ def _horarios_do_tipo(linha, tipo, col_sala, col_simples, docentes, estrategia, 
 
     aulas, esperadas = parse_horarios(texto)
     if len(aulas) < esperadas:
-        res.problema("aviso", "horario_nao_interpretado", ctx,
-                     f"{tipo}: {len(aulas)} de {esperadas} aulas interpretadas: {texto!r}")
+        res.problema(
+            "aviso",
+            "horario_nao_interpretado",
+            ctx,
+            f"{tipo}: {len(aulas)} de {esperadas} aulas interpretadas: {texto!r}",
+        )
     if docentes and not aulas:
-        res.problema("aviso", "docente_sem_horario", ctx,
-                     f"{tipo}: docente(s) {docentes} sem horário; o schema só guarda docente "
-                     "dentro de horario_aula, então não será gravado")
+        res.problema(
+            "aviso",
+            "docente_sem_horario",
+            ctx,
+            f"{tipo}: docente(s) {docentes} sem horário; o schema só guarda docente "
+            "dentro de horario_aula, então não será gravado",
+        )
 
     escolhidos = docentes[:1] if estrategia == "primeiro" else docentes
     registros = []
     for aula in aulas:
-        for docente in (escolhidos or [None]):
+        for docente in escolhidos or [None]:
             registros.append(
                 {
                     "tipo": tipo,
@@ -158,44 +193,72 @@ def transform_turmas(df, codigos_catalogo, res, multi_docente=MULTI_DOCENTE_PADR
     conhecidos = {d["nome_normalizado"] for d in res.docentes}
     cursos, novos_docentes, chaves_vistas = [], {}, set()
 
-    for idx, linha in enumerate(df.to_dict("records"), start=2):  # 2 = 1ª linha de dados
+    for idx, linha in enumerate(
+        df.to_dict("records"), start=2
+    ):  # 2 = 1ª linha de dados
         codigo_completo = _texto(linha.get("codigo_turma"))
         ctx = codigo_completo or f"linha {idx}"
 
         casado = CODIGO_TURMA_RE.match(codigo_completo or "")
         if not casado:
-            res.problema("rejeitado", "codigo_turma_invalido", ctx,
-                         "não segue o padrão <D|N><turma><disciplina>-<ano><campus>")
+            res.problema(
+                "rejeitado",
+                "codigo_turma_invalido",
+                ctx,
+                "não segue o padrão <D|N><turma><disciplina>-<ano><campus>",
+            )
             continue
 
         sigla, turma = casado["sigla"], casado["turma"]
         if sigla not in codigos_catalogo:
-            res.problema("rejeitado", "disciplina_fora_do_catalogo", ctx,
-                         f"disciplina {sigla} não existe no catálogo")
+            res.problema(
+                "rejeitado",
+                "disciplina_fora_do_catalogo",
+                ctx,
+                f"disciplina {sigla} não existe no catálogo",
+            )
             continue
 
         campus_bruto = _texto(linha.get("campus")) or casado["campus"]
         campus = CAMPUS_MAP.get(campus_bruto.upper())
         if not campus:
-            res.problema("rejeitado", "campus_invalido", ctx, f"campus {campus_bruto!r}")
+            res.problema(
+                "rejeitado", "campus_invalido", ctx, f"campus {campus_bruto!r}"
+            )
             continue
 
-        turno = None if is_blank(linha.get("turno")) else str(linha["turno"]).strip()[0].upper()
+        turno = (
+            None
+            if is_blank(linha.get("turno"))
+            else str(linha["turno"]).strip()[0].upper()
+        )
         turno_codigo = TURNO_POR_PREFIXO[casado["turno"]]
         if turno is None:
             turno = turno_codigo
         elif turno != turno_codigo:
-            res.problema("aviso", "turno_divergente", ctx,
-                         f"coluna TURNO={turno!r} difere do prefixo do código; usado {turno!r}")
+            res.problema(
+                "aviso",
+                "turno_divergente",
+                ctx,
+                f"coluna TURNO={turno!r} difere do prefixo do código; usado {turno!r}",
+            )
 
         chave = (turma, sigla, turno, campus)
         if chave in chaves_vistas:
-            res.problema("rejeitado", "turma_duplicada", ctx,
-                         "mesma turma/disciplina/turno/campus já lida; ignorada")
+            res.problema(
+                "rejeitado",
+                "turma_duplicada",
+                ctx,
+                "mesma turma/disciplina/turno/campus já lida; ignorada",
+            )
             continue
         chaves_vistas.add(chave)
 
-        curso = str(linha["curso"]).strip().upper() if not is_blank(linha.get("curso")) else None
+        curso = (
+            str(linha["curso"]).strip().upper()
+            if not is_blank(linha.get("curso"))
+            else None
+        )
         if not curso:
             res.problema("rejeitado", "curso_ausente", ctx, "linha sem curso")
             continue
@@ -213,13 +276,31 @@ def transform_turmas(df, codigos_catalogo, res, multi_docente=MULTI_DOCENTE_PADR
                     "origem": "planilha",
                 }
         if len(docs_teoria) > 1 or len(docs_pratica) > 1:
-            res.problema("aviso", "multiplos_docentes", ctx,
-                         f"teoria={docs_teoria} prática={docs_pratica}; estratégia '{multi_docente}'")
+            res.problema(
+                "aviso",
+                "multiplos_docentes",
+                ctx,
+                f"teoria={docs_teoria} prática={docs_pratica}; estratégia '{multi_docente}'",
+            )
 
         horarios = _horarios_do_tipo(
-            linha, "teoria", "teoria_sala", "teoria", docs_teoria, multi_docente, ctx, res
+            linha,
+            "teoria",
+            "teoria_sala",
+            "teoria",
+            docs_teoria,
+            multi_docente,
+            ctx,
+            res,
         ) + _horarios_do_tipo(
-            linha, "pratica", "pratica_sala", "pratica", docs_pratica, multi_docente, ctx, res
+            linha,
+            "pratica",
+            "pratica_sala",
+            "pratica",
+            docs_pratica,
+            multi_docente,
+            ctx,
+            res,
         )
 
         descricao = normalize_name(_texto(linha.get("descricao")) or "")
@@ -232,8 +313,8 @@ def transform_turmas(df, codigos_catalogo, res, multi_docente=MULTI_DOCENTE_PADR
                 "turno": turno,
                 "vagas": _int(linha.get("vagas")),
                 "reserva": _int(linha.get("reserva")),
-                "ingles": "ingles" in descricao,
-                "espanhol": "espanhol" in descricao,
+                "ingles": "ingles" in descricao or _sim(linha.get("ingles_col")),
+                "espanhol": "espanhol" in descricao or _sim(linha.get("espanhol_col")),
                 "curso": curso,
                 "horarios": horarios,
             }
@@ -242,5 +323,9 @@ def transform_turmas(df, codigos_catalogo, res, multi_docente=MULTI_DOCENTE_PADR
     res.cursos = cursos
     for doc in novos_docentes.values():
         res.docentes.append(doc)
-        res.problema("aviso", "docente_criado_da_planilha", doc["nome"],
-                     "não consta no CSV de docentes; criado a partir da planilha")
+        res.problema(
+            "aviso",
+            "docente_criado_da_planilha",
+            doc["nome"],
+            "não consta no CSV de docentes; criado a partir da planilha",
+        )
