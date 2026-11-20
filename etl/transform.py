@@ -20,7 +20,7 @@ from .normalize import clean_docente_name, is_blank, normalize_name, title_name
 # DA1ESTB019-17SA = turno(D) + turma(A1) + disciplina(ESTB019-17) + campus(SA)
 # A turma pode vir sem número (DAESTA005-17SA -> turma "A").
 CODIGO_TURMA_RE = re.compile(
-    r"^(?P<turno>[DN])(?P<turma>[A-Z]\d?)"
+    r"^(?P<turno>[DN])(?P<turma>[A-Z]\d*)"
     r"(?P<sigla>[A-Z]{2,}\d{3,4}-\d{2})(?P<campus>SA|SBC|SB)$"
 )
 
