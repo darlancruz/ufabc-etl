@@ -9,13 +9,20 @@ import pandas as pd
 
 from .config import (
     CAMPUS_MAP,
+    HORAS_POR_CREDITO,
     MULTI_DOCENTE_PADRAO,
     SEM_RECOMENDACAO,
     TURNO_POR_PREFIXO,
 )
 from .extract import DOCENTE_COLS_PRATICA, DOCENTE_COLS_TEORIA
 from .horarios import parse_horarios
-from .normalize import clean_docente_name, is_blank, normalize_name, title_name
+from .normalize import (
+    clean_docente_name,
+    collapse_spaces as collapse,
+    is_blank,
+    normalize_name,
+    title_name,
+)
 
 # DA1ESTB019-17SA = turno(D) + turma(A1) + disciplina(ESTB019-17) + campus(SA)
 # A turma pode vir sem número (DAESTA005-17SA -> turma "A").
@@ -23,6 +30,15 @@ CODIGO_TURMA_RE = re.compile(
     r"^(?P<turno>[DN])(?P<turma>[A-Z]\d*)"
     r"(?P<sigla>[A-Z]{2,}\d{3,4}-\d{2})(?P<campus>SA|SBC|SB)$"
 )
+
+# "BIOESTATÍSTICA A1-Matutino (SA)" -> nome "BIOESTATÍSTICA".
+# Também cobre "ECON A2-Noturno (SB)-TURMA MINISTRADA EM INGLÊS".
+NOME_TURMA_RE = re.compile(
+    r"^(?P<nome>.+?)\s+[A-Z]\d*\s*-\s*(?:Matutino|Noturno|Diurno|Vespertino)\b.*$",
+    re.IGNORECASE,
+)
+# TPEI da planilha: "2-2-4" (T-P-I, sem extensão) ou "1-3-4-6" (T-P-E-I).
+TPEI_RE = re.compile(r"^\s*(\d+)-(\d+)-(\d+)(?:-(\d+))?\s*$")
 
 
 @dataclass
@@ -189,7 +205,52 @@ def _horarios_do_tipo(
     return registros
 
 
-def transform_turmas(df, codigos_catalogo, res, multi_docente=MULTI_DOCENTE_PADRAO):
+def _disciplina_da_planilha(sigla, descricao, tpei):
+    """Monta uma disciplina a partir da planilha de turmas.
+
+    Devolve (disciplina, None) ou (None, motivo). Dados aproximados: sem
+    bibliografia, sem recomendações e, para TPEI de 3 partes, sem extensão.
+    """
+    achou = NOME_TURMA_RE.match(collapse(_texto(descricao) or ""))
+    if not achou:
+        return None, "não foi possível extrair o nome da coluna TURMA"
+    nome = achou["nome"].strip()
+
+    partes = TPEI_RE.match(_texto(tpei) or "")
+    if not partes:
+        return None, f"TPEI ausente ou inválido ({_texto(tpei)!r})"
+    if partes[4] is None:  # T-P-I
+        t, p, i = (int(partes[n]) for n in (1, 2, 3))
+        e = 0
+    else:  # T-P-E-I
+        t, p, e, i = (int(partes[n]) for n in (1, 2, 3, 4))
+    creditos = t + p
+    if creditos == 0:
+        return None, f"TPEI sem créditos ({tpei!r})"
+
+    return {
+        "codigo": sigla,
+        "nome": nome,
+        "carga_horaria": creditos * HORAS_POR_CREDITO,
+        "creditos": creditos,
+        "bibliografia_basica": None,
+        "bibliografia_complementar": None,
+        "horas_teoria": t,
+        "horas_pratica": p,
+        "horas_extensao": e,
+        "horas_individuais": i,
+        "origem": "planilha",
+    }, None
+
+
+def transform_turmas(
+    df,
+    codigos_catalogo,
+    res,
+    multi_docente=MULTI_DOCENTE_PADRAO,
+    criar_disciplinas=True,
+):
+    codigos = set(codigos_catalogo)  # cópia: disciplinas criadas entram aqui
     conhecidos = {d["nome_normalizado"] for d in res.docentes}
     cursos, novos_docentes, chaves_vistas = [], {}, set()
 
@@ -210,14 +271,29 @@ def transform_turmas(df, codigos_catalogo, res, multi_docente=MULTI_DOCENTE_PADR
             continue
 
         sigla, turma = casado["sigla"], casado["turma"]
-        if sigla not in codigos_catalogo:
-            res.problema(
-                "rejeitado",
-                "disciplina_fora_do_catalogo",
-                ctx,
-                f"disciplina {sigla} não existe no catálogo",
+        if sigla not in codigos:
+            disciplina, motivo = (
+                _disciplina_da_planilha(sigla, linha.get("descricao"), linha.get("tpei"))
+                if criar_disciplinas
+                else (None, "criação a partir da planilha desativada")
             )
-            continue
+            if disciplina is None:
+                res.problema(
+                    "rejeitado",
+                    "disciplina_fora_do_catalogo",
+                    ctx,
+                    f"disciplina {sigla} não existe no catálogo e não foi criada: {motivo}",
+                )
+                continue
+            codigos.add(sigla)
+            res.disciplinas.append(disciplina)
+            res.problema(
+                "aviso",
+                "disciplina_criada_da_planilha",
+                sigla,
+                f"{disciplina['nome']!r} não consta no catálogo; criada a partir da "
+                f"planilha (TPEI {_texto(linha.get('tpei'))}): sem bibliografia e sem recomendações",
+            )
 
         campus_bruto = _texto(linha.get("campus")) or casado["campus"]
         campus = CAMPUS_MAP.get(campus_bruto.upper())

@@ -177,6 +177,88 @@ class TestTransformTurmas(unittest.TestCase):
         self.assertEqual(res.docentes[0]["nome"], "Fulano da Silva")
 
 
+class TestDisciplinaDaPlanilha(unittest.TestCase):
+    def _nova(self, **kw):
+        base = {"descricao": "ESTATÍSTICA NOVA A1-Matutino (SA)", "tpei": "2-2-4"}
+        base.update(kw)
+        return _transformar([_linha(**base)], catalogo=("OUTRA-99",))
+
+    def test_cria_disciplina_com_tpei_de_3_partes(self):
+        res = self._nova()
+        self.assertEqual(len(res.turmas), 1)
+        d = res.disciplinas[0]
+        self.assertEqual(
+            (d["codigo"], d["nome"], d["creditos"], d["carga_horaria"], d["origem"]),
+            ("ESTB019-17", "ESTATÍSTICA NOVA", 4, 48, "planilha"),
+        )
+        self.assertEqual(
+            (d["horas_teoria"], d["horas_pratica"], d["horas_extensao"], d["horas_individuais"]),
+            (2, 2, 0, 4),
+        )
+        self.assertIn("disciplina_criada_da_planilha", [p["tipo"] for p in res.problemas])
+
+    def test_tpei_de_4_partes_traz_extensao(self):
+        d = self._nova(tpei="1-3-4-6").disciplinas[0]
+        self.assertEqual(
+            (d["creditos"], d["horas_extensao"], d["horas_individuais"]), (4, 4, 6)
+        )
+
+    def test_nome_sem_sufixo_de_turma_e_idioma(self):
+        res = self._nova(descricao="ECON X A2-Noturno (SB)-TURMA MINISTRADA EM INGLÊS")
+        self.assertEqual(res.disciplinas[0]["nome"], "ECON X")
+
+    def test_disciplina_criada_uma_vez_para_varias_turmas(self):
+        linhas = [
+            _linha(descricao="NOVA A1-Matutino (SA)", tpei="2-0-2"),
+            _linha(codigo_turma="NA1ESTB019-17SA", turno="Noturno",
+                   descricao="NOVA A1-Noturno (SA)", tpei="2-0-2"),
+        ]
+        res = _transformar(linhas, catalogo=("OUTRA-99",))
+        self.assertEqual((len(res.turmas), len(res.disciplinas)), (2, 1))
+
+    def test_sem_tpei_valido_continua_rejeitada(self):
+        for tpei in (None, "abc", "0-0-4"):
+            res = self._nova(tpei=tpei)
+            self.assertEqual(res.turmas, [], tpei)
+            self.assertEqual(res.disciplinas, [], tpei)
+            self.assertEqual(res.problemas[0]["tipo"], "disciplina_fora_do_catalogo")
+
+    def test_desativada_rejeita(self):
+        res = _transformar([_linha(tpei="2-2-4")], catalogo=("OUTRA-99",), criar_disciplinas=False)
+        self.assertEqual((res.turmas, res.disciplinas), ([], []))
+
+    def test_catalogo_tem_prioridade_na_carga(self):
+        conn = novo_banco()
+        db = SqliteDb(conn)
+        res = TransformResult()
+        res.disciplinas = [{
+            "codigo": "ESTB019-17", "nome": "NOME OFICIAL", "carga_horaria": 48, "creditos": 4,
+            "bibliografia_basica": "livro", "bibliografia_complementar": None,
+            "horas_teoria": 2, "horas_pratica": 2, "horas_extensao": 0, "horas_individuais": 4,
+        }]
+        carregar(db, res, "2027.1")
+        # planilha tenta criar a mesma disciplina com dados aproximados
+        res2 = _transformar([_linha(descricao="NOME APROXIMADO A1-Matutino (SA)", tpei="1-1-0")],
+                            catalogo=("OUTRA-99",))
+        carregar(db, res2, "2027.1")
+        nome, bib = conn.execute("SELECT nome, bibliografia_basica FROM disciplina").fetchone()
+        self.assertEqual((nome, bib), ("NOME OFICIAL", "livro"))
+
+    def test_catalogo_posterior_corrige_a_criada_pela_planilha(self):
+        conn = novo_banco()
+        db = SqliteDb(conn)
+        carregar(db, _transformar([_linha(descricao="NOME APROXIMADO A1-Matutino (SA)", tpei="2-2-4")],
+                                  catalogo=("OUTRA-99",)), "2027.1")
+        res = TransformResult()
+        res.disciplinas = [{
+            "codigo": "ESTB019-17", "nome": "NOME OFICIAL", "carga_horaria": 48, "creditos": 4,
+            "bibliografia_basica": None, "bibliografia_complementar": None,
+            "horas_teoria": 2, "horas_pratica": 2, "horas_extensao": 0, "horas_individuais": 4,
+        }]
+        carregar(db, res, "2027.1")
+        self.assertEqual(conn.execute("SELECT nome FROM disciplina").fetchone()[0], "NOME OFICIAL")
+
+
 @unittest.skipUnless(all(a.exists() for a in ARQS), "arquivos de data/raw ausentes")
 class TestPipelineReal(unittest.TestCase):
     @classmethod
