@@ -33,3 +33,7 @@ MULTI_DOCENTE_PADRAO = "todos"
 
 # Valores (já normalizados) que significam "sem recomendação".
 SEM_RECOMENDACAO = {"nao ha", "-", ""}
+
+# Disciplina criada a partir da planilha (quando ausente do catálogo):
+# carga horária = créditos (T + P) x 12 horas.
+HORAS_POR_CREDITO = 12

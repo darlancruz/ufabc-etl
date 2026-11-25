@@ -30,6 +30,7 @@ TURMAS_COLUNAS = {
     "codigo de turma": "codigo_turma",
     "codigo turma": "codigo_turma",
     "turma": "descricao",
+    "tpei": "tpei",
     "campus": "campus",
     "turno": "turno",
     "vagas totais": "vagas",
