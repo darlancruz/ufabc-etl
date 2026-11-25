@@ -148,6 +148,11 @@ def main(argv=None) -> int:
         action="store_true",
         help="não grava no banco; gera CSVs em data/processed",
     )
+    ap.add_argument(
+        "--nao-criar-disciplinas",
+        action="store_true",
+        help="rejeitar turmas de disciplinas fora do catálogo em vez de criá-las a partir da planilha",
+    )
     ap.add_argument("--relatorios", default="reports")
     args = ap.parse_args(argv)
 
@@ -162,7 +167,14 @@ def main(argv=None) -> int:
 
     aba = int(args.aba) if str(args.aba).isdigit() else args.aba
     try:
-        res = build(args.catalogo, args.docentes, args.turmas, aba, args.multi_docente)
+        res = build(
+            args.catalogo,
+            args.docentes,
+            args.turmas,
+            aba,
+            args.multi_docente,
+            criar_disciplinas=not args.nao_criar_disciplinas,
+        )
     except (ETLError, FileNotFoundError) as e:
         logging.error("%s", e)
         return 2
