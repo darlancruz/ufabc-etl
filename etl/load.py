@@ -30,6 +30,10 @@ ON CONFLICT (codigo) DO UPDATE SET
     horas_individuais = EXCLUDED.horas_individuais
 """
 
+# Disciplina criada a partir da planilha de turmas: dados aproximados, então nunca
+# sobrescreve uma disciplina que já exista (o catálogo é a fonte oficial).
+SQL_DISCIPLINA_PLANILHA = SQL_DISCIPLINA.split("ON CONFLICT")[0] + "ON CONFLICT (codigo) DO NOTHING\n"
+
 # Docente vindo do CSV é a fonte oficial do nome; o criado pela planilha nunca sobrescreve.
 SQL_DOCENTE_CSV = """
 INSERT INTO docente (nome, nome_normalizado) VALUES (:nome, :nome_normalizado)
@@ -91,8 +95,11 @@ def carregar(db: Db, res, codigo_quadrimestre: str, marcar_atual: bool = True) -
     stats = {}
 
     # 1. disciplinas
-    db.executemany(SQL_DISCIPLINA, res.disciplinas)
+    # catálogo primeiro (fonte oficial); as criadas pela planilha só entram se não existirem
+    db.executemany(SQL_DISCIPLINA, [d for d in res.disciplinas if d.get("origem") != "planilha"])
+    db.executemany(SQL_DISCIPLINA_PLANILHA, [d for d in res.disciplinas if d.get("origem") == "planilha"])
     stats["disciplinas"] = len(res.disciplinas)
+    stats["disciplinas_da_planilha"] = sum(1 for d in res.disciplinas if d.get("origem") == "planilha")
 
     # 2. docentes (CSV primeiro, depois os criados a partir da planilha)
     db.executemany(SQL_DOCENTE_CSV, [d for d in res.docentes if d["origem"] == "csv"])
